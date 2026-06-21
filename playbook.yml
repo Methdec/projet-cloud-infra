@@ -1,0 +1,42 @@
+---
+- name: Deploiement de l'infrastructure
+  hosts: all
+  become: yes
+  tasks:
+    - name: Attendre que le verrou apt soit libéré
+      shell: while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done;
+
+    - name: Installer Docker
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+
+    - name: Lancer conteneur PostgreSQL (sur VM DB)
+      docker_container:
+        name: postgres
+        image: postgres:15
+        state: started
+        restart_policy: always
+        env:
+          POSTGRES_PASSWORD: "monpassword"
+      when: inventory_hostname in groups['db']
+
+    - name: Lancer conteneur Flask (sur VM App)
+      docker_container:
+        name: flask-app
+        image: python:3.9-slim
+        state: started
+        restart_policy: always
+        command: "python3 -c 'from flask import Flask; app = Flask(__name__); @app.route(\"/\"); def h(): return \"Hello Cloud!\"; app.run(host=\"0.0.0.0\")'"
+      when: inventory_hostname in groups['app']
+
+    - name: Lancer conteneur Nginx (sur VM Proxy)
+      docker_container:
+        name: nginx-proxy
+        image: nginx:latest
+        state: started
+        restart_policy: always
+        published_ports:
+          - "80:80"
+      when: inventory_hostname in groups['proxy']
